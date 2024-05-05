@@ -178,14 +178,20 @@ Several raster layers have been provided for this analysis:
 Note that `lc_change` is projected as `NAD 1983 StatePlane Texas South FIPS 4205 Feet`. The original land cover raster is at a 30 meter by 30 meter resolution. The rasters provided are ultimately resampled up to 4000 feet by 4000 feet. The Houston metro area is quite large at roughly 10,000 square meters (`st_area(houstonMSA) * 3.58701e-8`). The original 30 by 30 meter data has nearly 58 million grid cells. A vector fishnet dataset of this size would be too computationally intensive. By resampling we gain some computational efficiency but loose some accuracy. Nevertheless, this approach works well for educational purposes.
 
 ```{r load_data, warning = FALSE, message = FALSE, results = "hide"}
+
 AtlantaMSA <- 
   st_read('Data/atlanta_msa_bound.geojson') %>%
-  st_transform('ESRI:102604') # JE Note: added 'ESRI:' in front of projection
+  st_transform('EPSG:2240') # JE Note: added 'ESRI:' in front of projection
+
 
 lc_2011 = raster('Data/lc_2011.tif')
+
+lc_2011 <- aggregate(lc_2011, fact = 5) #resampling rsater to 4000 x 4000 feet for fatser processing 
 lc_2011 <- projectRaster(lc_2011, crs='ESRI:102604')
 
 lc_2021 = raster('Data/lc_2021.tif')
+
+lc_2021 <- aggregate(lc_2021, fact = 5) #resampling rsater to 4000 x 4000 feet for fatser
 lc_2021 <- projectRaster(lc_2021, crs='ESRI:102604')
 
   
@@ -242,9 +248,9 @@ Notice that we used 4000x4000 unit grid cells in this analysis to keep small gri
 
 ```{r, warning = FALSE}
 
-development_change
+#development_change
 
-aggregate(development_change, fact = 2)
+#aggregate(development_change, fact = 2)
 
 ```
 
@@ -252,7 +258,7 @@ Next, the fishnet is created at 4000 by 4000 foot resolution and subset it to th
 
 ```{r, warning = FALSE, message = FALSE}
 AtlantaMSA_fishnet <- 
-  st_make_grid(AtlantaMSA, 4000) %>%
+  st_make_grid(AtlantaMSA, 2500) %>%
   st_sf()
 
 AtlantaMSA_fishnet <-
@@ -264,7 +270,7 @@ The vector fishnet is then plotted. Note that this plot takes a bit of time to r
 ```{r, warning = FALSE, message= FALSE}
 ggplot() +
   geom_sf(data=AtlantaMSA_fishnet) +
-  labs(title="Fishnet, 4000 Foot Resolution") +
+  labs(title="Fishnet, 2500 Foot Resolution") +
   mapTheme
 ```
 
@@ -305,7 +311,6 @@ It is reasonable to hypothesize that the propensity of new development is a func
 
 ```{r, warning = FALSE, message = FALSE}
 
-aggregate(lc_2011, fact = 3)
 
 ggplot() +
   geom_sf(data=AtlantaMSA) +
