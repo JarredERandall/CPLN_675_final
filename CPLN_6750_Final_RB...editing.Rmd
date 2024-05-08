@@ -88,10 +88,10 @@ Import raster data and project it into the appropriate cordinate system.
 
 ```{r atl_landcover}
 
-lc2011 <- rast('DATA/nlcd_2011.tif')
+lc2011 <- rast('DATA/lc_2011.tif')
 lc2011 <- project(lc2011,'EPSG:2240')
 
-lc2021 <- rast('DATA/nlcd_2021.tif')
+lc2021 <- rast('DATA/lc_2021.tif')
 lc2021 <- project(lc2021,'EPSG:2240')
 
 ```
@@ -348,7 +348,7 @@ fishnet_2011 <-
 
 ``` {r}
 
-highways <- st_read('./Data/Expressways_Atlanta_Region.geojson') %>% st_transform('EPSG:2240')
+highways <- st_read('./Data/atlanta_highway.geojson') %>% st_transform('EPSG:2240')
 
 centroid <- fishnet_2011 %>%
   st_centroid()
@@ -436,4 +436,83 @@ fishnet_2021 <- st_join(fishnet_2021,atl_msa %>% rename (county = NAME10) %>% se
   filter(water == 0) 
   
 ```
+
+
+# 4. Predicting for 2010
+
+In this section, six separate logistic regression models are estimated to predict development change between 2001 and 2011 - with each subsequent model more sophisticated then the last. To do so, the data is split into 50% training/test sets. Models are estimated on the training set.
+
+Normally, as in previous chapters, a results table row would be generated for each model describing the accuracy and generalizability of predictions for each specification. For brevity, a less sophisticated approach is taken here, judging each by the McFadden or “Psuedo” R Squared statistic on the test set. The model with the greatest goodness of fit is then used for the purposes of prediction.
+
+## 4.2. Modeling
+
+First, `dat` is split into training and test sets. Note how imbalanced the panel is with `table(datTrain$lc_change1)`.
+
+```{r, warning = FALSE, message = FALSE}
+set.seed(3456)
+trainIndex <- 
+  createDataPartition(dat$developed, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+datTrain <- dat[ trainIndex,]
+datTest  <- dat[-trainIndex,]
+
+nrow(dat)
+```
+
+Next six separate `glm` models are estimated adding new variables for each. Figure 4.1 shows the Psuedo R-Squared associated with each model.
+
+`Model1` includes only the 2001 land cover types. `Model2` adds the `lagDevelopment`. Models 3, 4 and 5 attempt three different approaches for modeling population change. `Model3` uses population in 2000; `Model4` uses 2000 and 2010 population; and `Model5` uses population change. All are significant so which population feature should be chosen? The answer lies in how the model will be used to forecast. By modeling population change between 2000 and 2010, the model is well specified to forecast 2020 development by having `pop_Change` indicate change between 2010 and 2020. `Model6` includes distance to the highways, and is the final model employed for prediction.
+
+```{r, warning = FALSE, message = FALSE}
+Model1 <- glm(lc_change ~ wetlands + forest  + farm + otherUndeveloped, 
+              family="binomial"(link="logit"), data = datTrain)
+
+Model2 <- glm(lc_change ~ wetlands + forest  + farm + otherUndeveloped + lagDevelopment, 
+              family="binomial"(link="logit"), data = datTrain)
+              
+Model3 <- glm(lc_change ~ wetlands + forest  + farm + otherUndeveloped + lagDevelopment + pop_2000, 
+              family="binomial"(link="logit"), data = datTrain)          
+              
+Model4 <- glm(lc_change ~ wetlands + forest  + farm + otherUndeveloped + lagDevelopment + pop_2000 + 
+              pop_2010, 
+              family="binomial"(link="logit"), data = datTrain)              
+            
+Model5 <- glm(lc_change ~ wetlands + forest  + farm + otherUndeveloped + lagDevelopment + pop_Change, 
+              family="binomial"(link="logit"), data = datTrain)              
+              
+Model6 <- glm(lc_change ~ wetlands + forest  + farm + otherUndeveloped + lagDevelopment + pop_Change + 
+              distance_highways, 
+              family="binomial"(link="logit"), data = datTrain) 
+```
+
+Working carefully through the below code block, a very concise approach for creating a data frame of psudeo R Squares for each model and plotting them for comparison. Recall, `pR2` is the function for psuedo R squared. Dissect the line that uses the `map_dfc` function to see how this approach loops through the models retrieving the goodness of fit for each.
+
+```{r, warning = FALSE, message = FALSE}
+modelList <- paste0("Model", 1:6)
+map_dfc(modelList, function(x)pR2(get(x)))[4,] %>%
+  setNames(paste0("Model",1:6)) %>%
+  gather(Model,McFadden) %>%
+  ggplot(aes(Model,McFadden)) +
+    geom_bar(stat="identity") +
+    labs(title= "McFadden R-Squared by Model") +
+    plotTheme
+```
+
+Next, a data frame is created that includes columns for the observed development change, `lc_change`, and one that includes predicted probabilities for `Model6`. This data frame is then used as an input to a density plot visualizing the distribution of predicted probabilities by observed class. Only a small number of predicted probabilities are greater than or equal to 50% `(nrow(filter(testSetProbs, probs >= .50)) / nrow(datTest))`. This makes good sense, given how rare of an event development is in our dataset. Ultimately, in order to judge our model with a confusion matrix, a smaller development classification threshold must be employed.
+
+```{r, warning = FALSE, message = FALSE}
+testSetProbs <- 
+  data.frame(class = datTest$lc_change,
+             probs = predict(Model6, datTest, type="response")) 
+  
+ggplot(testSetProbs, aes(probs)) +
+  geom_density(aes(fill=class), alpha=0.5) +
+  scale_fill_manual(values = palette2,
+                    labels=c("No Change","New Development")) +
+  labs(title = "Histogram of test set predicted probabilities",
+       x="Predicted Probabilities",y="Density") +
+  plotTheme
+```
+
 # Predict on 2021 Fishnet
